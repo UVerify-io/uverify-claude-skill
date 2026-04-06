@@ -1,0 +1,36 @@
+{
+  "name": "uverify-plugins",
+  "owner": {
+    "name": "UVerify-io",
+    "email": "hello@uverify.io"
+  },
+  "metadata": {
+    "description": "Official UVerify plugin marketplace — tools for building document certification, file integrity, and notary applications — backed by the Cardano blockchain.",
+    "version": "1.0.0"
+  },
+  "plugins": [
+    {
+      "name": "uverify",
+      "source": {
+        "source": "github",
+        "repo": "UVerify-io/uverify-claude-skill"
+      },
+      "description": "Build file integrity checks, immutable notary services, digital product passports, lab report verification, and document certification apps with the UVerify SDK and API — backed by the Cardano blockchain.",
+      "version": "1.0.0",
+      "author": {
+        "name": "UVerify-io",
+        "email": "hello@uverify.io"
+      },
+      "homepage": "https://uverify.io",
+      "repository": "https://github.com/UVerify-io/uverify-claude-skill",
+      "license": "Apache-2.0",
+      "keywords": [
+        "file-integrity", "immutability", "notary", "document-certification",
+        "digital-product-passport", "laboratory-report", "product-verification",
+        "tamper-proof", "audit-trail", "certificate", "uverify",
+        "cardano", "blockchain"
+      ],
+      "category": "developer-tools"
+    }
+  ]
+}

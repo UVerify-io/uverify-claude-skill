@@ -1,6 +1,6 @@
 # UVerify Claude Skill
 
-A [Claude Code](https://claude.ai/claude-code) skill that turns Claude into an expert UVerify developer assistant — covering the SDK, custom certificate templates, and white-label platform setup on Cardano.
+A [Claude Code](https://claude.ai/claude-code) skill that turns Claude into an expert assistant for building document certification, file integrity, and notary applications with the UVerify SDK and API — backed by the Cardano blockchain.
 
 ## What it does
 
@@ -17,17 +17,9 @@ Type `/uverify` in any Claude Code session and Claude instantly knows:
 
 ## Install
 
-```bash
-git clone https://github.com/UVerify-io/uverify-claude-skill
-cd uverify-claude-skill
-./install.sh
-```
-
-Or manually copy the skill file:
-
-```bash
-mkdir -p ~/.claude/skills
-cp uverify.md ~/.claude/skills/uverify.md
+```shell
+/plugin marketplace add UVerify-io/uverify-claude-skill
+/plugin install uverify@uverify-plugins
 ```
 
 ## Usage
@@ -44,8 +36,8 @@ Claude will ask what you want to build and guide you with working code.
 
 - `/uverify` — I want to issue diploma certificates from a Node.js backend
 - `/uverify` — Build a custom template that shows a product passport
-- `/uverify` — How do I verify a certificate hash without a wallet?
-- `/uverify` — Set up a white-label instance for my university
+- `/uverify` — How do I verify a file's integrity without a wallet?
+- `/uverify` — Set up a white-label notary service for my organisation
 
 ## Project scope
 
@@ -67,4 +59,4 @@ This skill covers three builder paths:
 
 ## License
 
-Apache 2.0
+Apache-2.0

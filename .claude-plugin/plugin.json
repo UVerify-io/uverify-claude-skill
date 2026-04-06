@@ -1,0 +1,12 @@
+{
+  "name": "uverify",
+  "description": "Build file integrity checks, immutable notary services, digital product passports, lab report verification, and document certification apps with the UVerify SDK and API — backed by the Cardano blockchain.",
+  "version": "1.0.0",
+  "author": {
+    "name": "UVerify-io",
+    "email": "hello@uverify.io"
+  },
+  "homepage": "https://uverify.io",
+  "repository": "https://github.com/UVerify-io/uverify-claude-skill",
+  "license": "Apache-2.0"
+}
