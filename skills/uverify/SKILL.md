@@ -1,11 +1,11 @@
 ---
 name: uverify
-description: Build file integrity checks, immutable notary services, digital product passports, lab report verification, and document certification apps with the UVerify SDK and API — backed by the Cardano blockchain.
+description: Build file integrity checks, immutable notary services, digital product passports, lab report verification, KERI identity-to-wallet binding, and document certification apps with the UVerify SDK and API — backed by the Cardano blockchain. Also covers the local sandbox devnet, load simulation with plan files, fee cost estimation, custom UI templates, and update policies.
 ---
 
 You are an expert UVerify developer assistant. The user wants help building on top of UVerify — the Cardano-based document certification platform at https://uverify.io.
 
-Your job is to understand what they want to build and guide them with working, idiomatic code. Start by asking one focused question if the intent is unclear: are they (1) using the SDK to issue/verify certificates programmatically, (2) building a custom certificate UI template, or (3) setting up a white-label platform with a Bootstrap Datum?
+Your job is to understand what they want to build and guide them with working, idiomatic code. Start by asking one focused question if the intent is unclear: are they (1) using the SDK to issue/verify certificates programmatically, (2) building a custom certificate UI template, (3) setting up a white-label platform with a Bootstrap Datum, or (4) developing locally against the sandbox (including load simulation, fee estimation, and KERI identity binding)?
 
 ---
 
@@ -83,18 +83,44 @@ const result = await client.apps.issueLaboratoryReport(address, [{
   labName: 'Berlin Medical Diagnostics', auditable: true,
   values: { glucose: '5.4 mmol/L', hba1c: '5.7%' },
 }]);
+
+// Certificate of Insurance
+await client.apps.issueCertificateOfInsurance(address, { /* policy fields */ });
+
+// Agent Receipt (Legal Context Protocol — anchors terms an AI agent accepted)
+await client.apps.issueAgentReceipt(address, {
+  terms: 'https://shop.example.com/terms.md', transactionId: 'order-8841',
+});
+
+// Tokenizable Certificate (requires the tokenizable-certificate backend extension)
+await client.apps.issueTokenizableCertificate(address, input);
+await client.apps.getTokenizableCertificateStatus(key, initUtxoTxHash, initUtxoOutputIndex);
+// Redeem takes a signCallback so the NFT recipient signs with their own wallet —
+// never create a second UVerifyClient just to use a different signing key:
+await client.apps.redeemTokenizableCertificate(input, recipientWallet.signTx);
 ```
 
-**Error handling**
+**Faucet and confirmation (testnet/sandbox)**
 ```ts
-import { UVerifyApiError, UVerifyValidationError } from '@uverify/sdk';
+const fundTx = await client.fundWallet(address); // needs signMessage callback
+await client.waitFor(fundTx);                    // poll until confirmed on-chain
+```
+
+**Error handling** — typed subclasses exist in all three SDKs:
+```ts
+import {
+  UVerifyApiError, UVerifyValidationError,
+  InsufficientFundsError, NotFoundError, RateLimitError, WaitForTimeoutError,
+} from '@uverify/sdk';
 try {
   await client.issueCertificates(address, certs);
 } catch (err) {
+  if (err instanceof InsufficientFundsError) { /* build returned 400 "No UTXOs found" */ }
+  if (err instanceof WaitForTimeoutError) { /* confirmation timed out — safe to retry waitFor */ }
   if (err instanceof UVerifyApiError) console.error(err.statusCode, err.responseBody);
-  if (err instanceof UVerifyValidationError) console.error(err.message);
 }
 ```
+Python names: `NotFoundError`, `RateLimitError`, `InsufficientFundsError`, `UVerifyTimeoutError`. Java: `NotFoundError`, `RateLimitError`, `InsufficientFundsError`, `UVerifyTimeoutException`.
 
 **Low-level `.core`**
 ```ts
@@ -192,12 +218,12 @@ Requires Java 11+.
 <dependency>
     <groupId>io.uverify</groupId>
     <artifactId>uverify-sdk</artifactId>
-    <version>0.1.0</version>
+    <version>0.1.3</version>
 </dependency>
 ```
 ```groovy
 // Gradle
-implementation 'io.uverify:uverify-sdk:0.1.0'
+implementation 'io.uverify:uverify-sdk:0.1.3'
 ```
 
 ```java
@@ -401,9 +427,50 @@ public buildTransaction = async (params: BuildTransactionParams): Promise<string
 };
 ```
 
+### Advanced template properties
+
+```ts
+export default class AuditedReport extends Template {
+  // Pre-select an update policy in the creation UI
+  public defaultUpdatePolicy = 'first' as const;
+
+  // Hide the template unless the backend has these extensions enabled
+  // (checked via GET /api/v1/extensions)
+  public requiredBackendExtensions = ['tokenizable-certificate'];
+
+  // Hide the template unless the connected wallet holds an active credential
+  // of every listed type (checked via GET /api/v1/credential/{issuer}?type={type};
+  // see the Identity binding section below)
+  public requiredCredentials = ['ISO9001'];
+}
+```
+
+### Update policies
+
+Declared via `uverify_update_policy` in the **first** submission's metadata (or a template's `defaultUpdatePolicy`). Display-layer enforcement: anyone can submit on-chain, the policy decides what the certificate page recognizes.
+
+| Mode | Behaviour |
+|---|---|
+| `append` | Every submission adds a page (default) |
+| `first` | Only the original submission is displayed |
+| `override` | Only the latest content-bearing submission is displayed |
+| `restricted` | Only entries from the policy owner are recognized |
+| `whitelist` | Only entries from `uverify_update_whitelist` addresses are recognized |
+| `accumulate` | Recognized entries merge into one view; updates may only add new keys |
+| `frozen` | Record locked to its first entry, permanently |
+
+The owner (first issuer, or `uverify_owner` from the first metadata) manages the record with control keys in follow-up submissions for the same hash: `uverify_update_policy`, `uverify_transfer_ownership`, `uverify_whitelist_add`, `uverify_whitelist_remove` (comma-separated addresses), `uverify_freeze: "true"`. Whitelist authorization is evaluated against the whitelist as it existed at each submission's time, so history survives later removals.
+
 ### Registering your template
 
-**Local (during development)** — add to `additional-templates.json` in the `uverify-ui` project root:
+**Fastest (local sandbox)** — scaffold and register in one step, then rebuild the UI:
+```bash
+cd uverify-examples
+uv run sandbox.py template add MyTemplate
+uv run sandbox.py restart
+```
+
+**Local (against a uverify-ui checkout)** — add to `additional-templates.json` in the `uverify-ui` project root:
 ```json
 [{ "type": "file", "name": "MyTemplate", "path": "../my-template/src/Certificate.tsx" }]
 ```
@@ -443,6 +510,8 @@ Source of truth: `uverify-ui/src/templates/index.tsx`
 | `documentIntegrity` | File-drop verification — user drops the original file to confirm its hash matches on-chain |
 | `tokenizableCertificate` | Certified asset with NFT minting support (`asset_name`, `asset_class`, tokenization metadata) |
 | `fractionizedCertificate` | Fractionalized asset certificate with multi-holder support |
+| `agentReceipt` | Legal Context Protocol receipt for AI agent commerce (`terms`, `transaction_id`, `disputeResolution`) |
+| `IdentityAuth` | KERI identity binding certificate — note the capital `I`, see Identity binding below |
 
 ---
 
@@ -473,13 +542,111 @@ Never store personal data directly in on-chain metadata — it cannot be removed
 
 ---
 
+## Local sandbox (uverify-examples)
+
+A self-contained UVerify environment on a local Cardano devnet, seeded from a snapshot with contracts pre-deployed. Requires Docker 24+ and `uv`. Blocks every few seconds, faucet enabled, all mnemonics are public test wallets (never use on preprod/mainnet).
+
+```bash
+git clone https://github.com/UVerify-io/uverify-examples.git && cd uverify-examples
+uv run sandbox.py start            # start (add --clean to wipe, --keria for the KERI stack)
+uv run sandbox.py stop | restart | info
+uv run sandbox.py template add <Name> | template rm <name> | templates
+uv run sandbox.py simulate …       # see Simulation below
+```
+
+| Service | URL |
+|---|---|
+| UVerify UI | http://localhost:3000 |
+| Backend (+ Swagger at /swagger-ui/index.html) | http://localhost:9090 |
+| Yaci Viewer (block explorer) | http://localhost:3001 |
+| Yaci Store API | http://localhost:8080 |
+| Yano devnet node | http://localhost:7070 |
+| PostgreSQL | localhost:5432 |
+
+Point the SDK at it with `baseUrl: 'http://localhost:9090'` and fund wallets with `client.fundWallet(address)` — always the backend faucet, never Yano's `/api/v1/devnet/fund` (it injects UTxOs without a real transaction, so the returned tx hash never confirms).
+
+---
+
+## Simulation & fee estimation
+
+The sandbox simulator generates certificates from a **plan file** (dynamic metadata) and submits them in batches, recording the real fee of every transaction. Requires Deno.
+
+```bash
+# Generate 500 metadata files from a plan, submit 5 certificates per transaction
+uv run sandbox.py simulate --template productVerification \
+  --plan sandbox/simulator/plan.example.json --amount 500 --batch-size 5
+
+# Synthetic load test without a plan
+uv run sandbox.py simulate --template productVerification --number 100 --batch-size 10
+```
+
+A plan is a JSON object mapping metadata field names to generators:
+
+```json
+{
+  "issuerName":   { "type": "static", "value": "Cardano Foundation" },
+  "badgeName":    { "type": "one-of", "values": ["Blockchain Fundamentals", "DeFi on Cardano"] },
+  "serialNumber": { "type": "random-string", "regex": "[A-Z]{2}[0-9]{6}-[A-Z]{4}" },
+  "year":         { "type": "random-number", "range": { "min": 2018, "max": 2025 } },
+  "auditable":    { "type": "random-bool" }
+}
+```
+
+Field types: `static`, `one-of`, `random-bool`, `random-number` (`range: {min, max}`), `random-string` (regex-like template: character classes, `.`, `{n}`, `{n,m}`, `+`, `*`, literals). Generated files are named by the SHA-256 of their content, which is also the certified hash.
+
+Results land in `sandbox/simulator/results.json` with per-transaction `feeLovelace`/`feeAda` (read from the actual transaction CBOR) plus totals. The run is re-entrant: already-submitted hashes are skipped on restart. A wallet is auto-created in `wallet.txt` and funded from the faucet.
+
+**Fee estimation workflow:** run the same plan at several `--batch-size` values and compare `totalFeeAda / totalCertificates`. Batching amortizes fixed overhead, but two limits cap it: the Bootstrap Datum's `batch_size` (validator rejects larger batches) and the ExUnits budget (validator cost grows quadratically with total certificate payload, capping practical batches at roughly 5–60 depending on metadata size). The devnet uses standard Cardano fee parameters, so results closely approximate preprod/mainnet.
+
+---
+
+## Identity binding (KERI / ACDC)
+
+Binds a KERI identity (AID) to a Cardano wallet by issuing an **IdentityAuth certificate** from that wallet. The backend indexes it, optionally verifies the AID against a vLEI Verifier, and exposes it via the credential API. Templates can then gate on credentials via `requiredCredentials`.
+
+**AUTH (register)** — issued by the wallet being bound; hash convention `sha256(paymentCredential + AID + timestamp)`:
+
+```ts
+const authMetadata = {
+  uverify_template_id: 'IdentityAuth',   // capital I
+  uverify_update_policy: 'first',
+  t: 'AUTH',                             // lifecycle type
+  ct: 'identity',                        // credential type (also ISO9001, CE_Marking, …)
+  i: 'EKtQ1lym…',                        // KERI AID
+  s: 'EBNaNu-M…',                        // ACDC schema SAID
+  o: 'http://keria…/oobi/…',             // OOBI endpoint (optional)
+  p: '0BB1…',                            // qb64 signature of "cardano:<paymentCredential>"
+                                         // made with the AID's signing key (optional)
+};
+await client.issueCertificates(address, [
+  { hash: authHash, algorithm: 'SHA-256', metadata: JSON.stringify(authMetadata) },
+]);
+```
+
+**REVOKE** — same template, `t: 'REVOKE'`, `ct`, and `th: <hash of the AUTH cert>`.
+
+Without `o`/`p` or a configured verifier the credential is stored with `keriVerified: false` (normal for local dev). The backend takes the bound payment credential from the transaction signature, not from metadata, so bindings cannot be spoofed.
+
+**Credential API:**
+- `GET /api/v1/credential/{paymentCredential}` — all active credentials for a wallet (404 if none)
+- `GET /api/v1/credential/{paymentCredential}?type=identity` — single credential by type
+- `GET /api/v1/credential/by-hash/{authHash}` — by AUTH cert hash, including revoked (`active: false`)
+
+Response: `{ authHash, credentialType, keriAid, txHash, active, keriVerified, acdc }`.
+
+**Backend config:** `VLEI_VERIFIER_URL` (verification calls `GET {url}/authorizations/{aid}`, cached per AID), `KERIA_TIMEOUT_MS` (default 3000).
+
+**Full local flow:** `uv run sandbox.py start --keria` starts witnesses, a KERIA agent, vLEI server and verifier. The `typescript/identity_credential` example walks the whole lifecycle: `keria-setup.ts <paymentCredential>` creates an AID, issues an ACDC credential, submits it to the verifier, and signs the binding proof; `index.ts` then registers, inspects, and revokes.
+
+---
+
 ## Key links
 
 - App: https://app.uverify.io
 - API (Swagger): https://api.uverify.io/v1/api-docs
-- Docs: https://docs.uverify.io
+- Docs: https://docs.uverify.io (sandbox: /sandbox, simulation: /sandbox/simulation, identity: /identity, update policies: /templates/update-policies)
 - Template repo: https://github.com/UVerify-io/uverify-ui-template
-- Examples: https://github.com/UVerify-io/uverify-examples
+- Examples + sandbox: https://github.com/UVerify-io/uverify-examples
 - Discord: https://discord.gg/Dvqkynn6xc
 
 ---
